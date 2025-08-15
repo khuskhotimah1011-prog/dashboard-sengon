@@ -1,0 +1,299 @@
+
+<!doctype html>
+<html lang='id'>
+<head>
+  <meta charset='utf-8'/>
+  <meta name='viewport' content='width=device-width, initial-scale=1'/>
+  <title>Dashboard Sengon 1 ha — V4 (Samarinda)</title>
+  <style>
+    body {font-family: system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif; margin:0; background:#f6f7fb; color:#222;}
+    header {background:#1f6feb; color:#fff; padding:18px;}
+    main {padding:14px; max-width:1200px; margin:auto;}
+    .grid {display:grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap:14px;}
+    .card {background:#fff; border-radius:12px; padding:14px; box-shadow:0 4px 12px rgba(0,0,0,.06);}
+    .kpi {font-size:22px; font-weight:700; margin:6px 0;}
+    label {display:block; font-size:12px; opacity:.8; margin-top:6px;}
+    select, input {width:100%; padding:10px; border:1px solid #e5e7eb; border-radius:8px; margin-top:6px;}
+    .progress {height:10px; background:#eee; border-radius:999px; overflow:hidden;}
+    .bar {height:100%; width:0%; background:#22c55e; transition: width .4s ease;}
+    table {width:100%; border-collapse:collapse;}
+    th,td {padding:10px; text-align:left; border-bottom:1px solid #eee;}
+    th {background:#f3f4f6;}
+    .right {text-align:right;}
+    .money {font-variant-numeric: tabular-nums;}
+    .small {font-size:12px; color:#666;}
+    svg {width:100%; height:260px;}
+  </style>
+</head>
+<body>
+<header>
+  <h1>Dashboard Sengon 1 ha — V4 (Samarinda)</h1>
+  <div class='small'>Skenario • Kalender • Opsi Sewa 0/50/75/100 jt • Inflasi</div>
+</header>
+<main>
+  <div class='grid'>
+    <div class='card'>
+      <h3>Skenario & Parameter</h3>
+      <label>Pilih skenario
+        <select id='scenario'></select>
+      </label>
+      <label>Harga/m³ (slider uji sensitivitas)
+        <input id='price' type='range' min='500000' max='1500000' step='10000'/>
+        <div><span class='small'>Harga sekarang:</span> <b>IDR <span id='priceVal'>-</span></b></div>
+      </label>
+      <label>Tingkat hidup (%)<input id='survival' type='number' step='1'/></label>
+      <label>Volume/pohon (m³)<input id='volper' type='number' step='0.01'/></label>
+      <label>Jumlah pohon<input id='trees' type='number' /></label>
+      <h3 style='margin-top:12px;'>Overheads</h3>
+      <label>Sewa lahan / tahun
+        <select id='rent'></select>
+      </label>
+      <label>Keamanan / tahun (IDR)<input id='security' type='number' /></label>
+      <label>Inflasi biaya perawatan (%/tahun)<input id='inflation' type='number' step='0.1'/></label>
+    </div>
+    <div class='card'>
+      <h3>Ringkasan</h3>
+      <div>Total pohon hidup<div class='kpi'><span id='alive'>-</span> batang</div></div>
+      <div>Total volume<div class='kpi'><span id='volume'>-</span> m³</div></div>
+      <div>Pendapatan<div class='kpi money'>IDR <span id='revenue'>-</span></div></div>
+    </div>
+    <div class='card'>
+      <h3>Biaya</h3>
+      <div>Biaya awal<div class='kpi money'>IDR <span id='initCost'>-</span></div></div>
+      <div>Perawatan+Overheads (th 1–5, inflasi)<div class='kpi money'>IDR <span id='maintCost'>-</span></div></div>
+      <div>Biaya panen<div class='kpi money'>IDR <span id='harvCost'>-</span></div></div>
+      <div class='progress'><div id='bar' class='bar'></div></div>
+      <div class='small'>Bar = margin (keuntungan/pendapatan).</div>
+    </div>
+    <div class='card'>
+      <h3>Hasil Bersih</h3>
+      <div class='kpi money'>IDR <span id='profit'>-</span></div>
+      <div class='small'>= Pendapatan – Total biaya</div>
+    </div>
+  </div>
+
+  <div class='card' style='margin-top:14px;'>
+    <h3>Grafik Biaya vs Pendapatan</h3>
+    <svg id='chart' viewBox='0 0 800 260' preserveAspectRatio='none'></svg>
+    <div class='small'>Kolom = Biaya per tahun, Garis = Pendapatan (tahun panen).</div>
+  </div>
+
+  <div class='card' style='margin-top:14px;'>
+    <h3>Kalender Perawatan (Ringkas)</h3>
+    <label>Pilih tahun
+      <select id='yearSelect'></select>
+    </label>
+    <table id='calTable'><thead><tr><th>Bulan</th><th>Kegiatan</th><th class='right'>Biaya Per Bulan (IDR)</th></tr></thead><tbody></tbody>
+    <tfoot><tr><th colspan='2'>Total per Tahun</th><th class='right money'>IDR <span id='yearTotal'>-</span></th></tr></tfoot>
+    </table>
+  </div>
+</main>
+
+<script>
+const CFG = {"hectares": 1, "trees": 1100, "plant_year": 2025, "harvest_year": 2031, "scenarios": {"Konservatif": {"survival": 0.8, "vol_per_tree": 0.45, "price": 720000}, "Moderat": {"survival": 0.9, "vol_per_tree": 0.5, "price": 900000}, "Optimistis": {"survival": 0.95, "vol_per_tree": 0.55, "price": 1080000}}, "felling_cost_per_tree": 50000, "transport_cost_per_m3": 100000, "initial_costs": [{"Kegiatan": "Studi Kelayakan & Perencanaan", "Tipe": "Sekali", "Biaya (IDR)": 500000}, {"Kegiatan": "Pembersihan/Pembukaan Lahan", "Tipe": "Sekali", "Biaya (IDR)": 1000000}, {"Kegiatan": "Pengolahan Tanah & Drainase", "Tipe": "Sekali", "Biaya (IDR)": 2000000}, {"Kegiatan": "Pembelian Bibit (\u00b13 bln, 30\u201350 cm)", "Tipe": "Sekali", "Biaya (IDR)": 1500000}, {"Kegiatan": "Pembuatan Lubang + Pupuk Dasar", "Tipe": "Sekali", "Biaya (IDR)": 500000}, {"Kegiatan": "Penanaman & Tenaga Kerja", "Tipe": "Sekali", "Biaya (IDR)": 500000}], "calendar": [{"Tahun": 2025, "Bulan": "Jan", "Kegiatan": "Penyiangan", "Biaya (IDR)": 125000, "Periode": "2025-Jan"}, {"Tahun": 2025, "Bulan": "Apr", "Kegiatan": "Penyiangan", "Biaya (IDR)": 125000, "Periode": "2025-Apr"}, {"Tahun": 2025, "Bulan": "Jul", "Kegiatan": "Penyiangan", "Biaya (IDR)": 125000, "Periode": "2025-Jul"}, {"Tahun": 2025, "Bulan": "Okt", "Kegiatan": "Penyiangan", "Biaya (IDR)": 125000, "Periode": "2025-Okt"}, {"Tahun": 2025, "Bulan": "Jan", "Kegiatan": "Pemupukan", "Biaya (IDR)": 500000, "Periode": "2025-Jan"}, {"Tahun": 2025, "Bulan": "Jul", "Kegiatan": "Pemupukan", "Biaya (IDR)": 500000, "Periode": "2025-Jul"}, {"Tahun": 2025, "Bulan": "Jul", "Kegiatan": "Pengendalian Hama", "Biaya (IDR)": 150000, "Periode": "2025-Jul"}, {"Tahun": 2025, "Bulan": "Okt", "Kegiatan": "Pengendalian Hama", "Biaya (IDR)": 150000, "Periode": "2025-Okt"}, {"Tahun": 2025, "Bulan": "Jan", "Kegiatan": "Pemangkasan", "Biaya (IDR)": 200000, "Periode": "2025-Jan"}, {"Tahun": 2026, "Bulan": "Jan", "Kegiatan": "Penyiangan", "Biaya (IDR)": 125000, "Periode": "2026-Jan"}, {"Tahun": 2026, "Bulan": "Apr", "Kegiatan": "Penyiangan", "Biaya (IDR)": 125000, "Periode": "2026-Apr"}, {"Tahun": 2026, "Bulan": "Jul", "Kegiatan": "Penyiangan", "Biaya (IDR)": 125000, "Periode": "2026-Jul"}, {"Tahun": 2026, "Bulan": "Okt", "Kegiatan": "Penyiangan", "Biaya (IDR)": 125000, "Periode": "2026-Okt"}, {"Tahun": 2026, "Bulan": "Jan", "Kegiatan": "Pemupukan", "Biaya (IDR)": 500000, "Periode": "2026-Jan"}, {"Tahun": 2026, "Bulan": "Jul", "Kegiatan": "Pemupukan", "Biaya (IDR)": 500000, "Periode": "2026-Jul"}, {"Tahun": 2026, "Bulan": "Jul", "Kegiatan": "Pengendalian Hama", "Biaya (IDR)": 150000, "Periode": "2026-Jul"}, {"Tahun": 2026, "Bulan": "Okt", "Kegiatan": "Pengendalian Hama", "Biaya (IDR)": 150000, "Periode": "2026-Okt"}, {"Tahun": 2026, "Bulan": "Jan", "Kegiatan": "Pemangkasan", "Biaya (IDR)": 200000, "Periode": "2026-Jan"}, {"Tahun": 2027, "Bulan": "Jan", "Kegiatan": "Penyiangan", "Biaya (IDR)": 125000, "Periode": "2027-Jan"}, {"Tahun": 2027, "Bulan": "Apr", "Kegiatan": "Penyiangan", "Biaya (IDR)": 125000, "Periode": "2027-Apr"}, {"Tahun": 2027, "Bulan": "Jul", "Kegiatan": "Penyiangan", "Biaya (IDR)": 125000, "Periode": "2027-Jul"}, {"Tahun": 2027, "Bulan": "Okt", "Kegiatan": "Penyiangan", "Biaya (IDR)": 125000, "Periode": "2027-Okt"}, {"Tahun": 2027, "Bulan": "Jan", "Kegiatan": "Pemupukan", "Biaya (IDR)": 500000, "Periode": "2027-Jan"}, {"Tahun": 2027, "Bulan": "Jul", "Kegiatan": "Pemupukan", "Biaya (IDR)": 500000, "Periode": "2027-Jul"}, {"Tahun": 2027, "Bulan": "Jul", "Kegiatan": "Pengendalian Hama", "Biaya (IDR)": 150000, "Periode": "2027-Jul"}, {"Tahun": 2027, "Bulan": "Okt", "Kegiatan": "Pengendalian Hama", "Biaya (IDR)": 150000, "Periode": "2027-Okt"}, {"Tahun": 2027, "Bulan": "Jan", "Kegiatan": "Pemangkasan", "Biaya (IDR)": 200000, "Periode": "2027-Jan"}, {"Tahun": 2028, "Bulan": "Jan", "Kegiatan": "Penyiangan", "Biaya (IDR)": 125000, "Periode": "2028-Jan"}, {"Tahun": 2028, "Bulan": "Apr", "Kegiatan": "Penyiangan", "Biaya (IDR)": 125000, "Periode": "2028-Apr"}, {"Tahun": 2028, "Bulan": "Jul", "Kegiatan": "Penyiangan", "Biaya (IDR)": 125000, "Periode": "2028-Jul"}, {"Tahun": 2028, "Bulan": "Okt", "Kegiatan": "Penyiangan", "Biaya (IDR)": 125000, "Periode": "2028-Okt"}, {"Tahun": 2028, "Bulan": "Jan", "Kegiatan": "Pemupukan", "Biaya (IDR)": 500000, "Periode": "2028-Jan"}, {"Tahun": 2028, "Bulan": "Jul", "Kegiatan": "Pemupukan", "Biaya (IDR)": 500000, "Periode": "2028-Jul"}, {"Tahun": 2028, "Bulan": "Jul", "Kegiatan": "Pengendalian Hama", "Biaya (IDR)": 150000, "Periode": "2028-Jul"}, {"Tahun": 2028, "Bulan": "Okt", "Kegiatan": "Pengendalian Hama", "Biaya (IDR)": 150000, "Periode": "2028-Okt"}, {"Tahun": 2028, "Bulan": "Jan", "Kegiatan": "Pemangkasan", "Biaya (IDR)": 200000, "Periode": "2028-Jan"}, {"Tahun": 2029, "Bulan": "Jan", "Kegiatan": "Penyiangan", "Biaya (IDR)": 125000, "Periode": "2029-Jan"}, {"Tahun": 2029, "Bulan": "Apr", "Kegiatan": "Penyiangan", "Biaya (IDR)": 125000, "Periode": "2029-Apr"}, {"Tahun": 2029, "Bulan": "Jul", "Kegiatan": "Penyiangan", "Biaya (IDR)": 125000, "Periode": "2029-Jul"}, {"Tahun": 2029, "Bulan": "Okt", "Kegiatan": "Penyiangan", "Biaya (IDR)": 125000, "Periode": "2029-Okt"}, {"Tahun": 2029, "Bulan": "Jan", "Kegiatan": "Pemupukan", "Biaya (IDR)": 500000, "Periode": "2029-Jan"}, {"Tahun": 2029, "Bulan": "Jul", "Kegiatan": "Pemupukan", "Biaya (IDR)": 500000, "Periode": "2029-Jul"}, {"Tahun": 2029, "Bulan": "Jul", "Kegiatan": "Pengendalian Hama", "Biaya (IDR)": 150000, "Periode": "2029-Jul"}, {"Tahun": 2029, "Bulan": "Okt", "Kegiatan": "Pengendalian Hama", "Biaya (IDR)": 150000, "Periode": "2029-Okt"}, {"Tahun": 2029, "Bulan": "Jan", "Kegiatan": "Pemangkasan", "Biaya (IDR)": 200000, "Periode": "2029-Jan"}, {"Tahun": 2025, "Bulan": "Jan", "Kegiatan": "Penyulaman", "Biaya (IDR)": 100000, "Periode": "2025-Jan"}, {"Tahun": 2025, "Bulan": "Apr", "Kegiatan": "Penyulaman", "Biaya (IDR)": 100000, "Periode": "2025-Apr"}, {"Tahun": 2025, "Bulan": "Jul", "Kegiatan": "Irigasi (kemarau)", "Biaya (IDR)": 200000, "Periode": "2025-Jul"}, {"Tahun": 2025, "Bulan": "Okt", "Kegiatan": "Irigasi (kemarau)", "Biaya (IDR)": 200000, "Periode": "2025-Okt"}, {"Tahun": 2026, "Bulan": "Jul", "Kegiatan": "Irigasi (kemarau)", "Biaya (IDR)": 200000, "Periode": "2026-Jul"}, {"Tahun": 2026, "Bulan": "Okt", "Kegiatan": "Irigasi (kemarau)", "Biaya (IDR)": 200000, "Periode": "2026-Okt"}], "event_costs": {"Penyiangan": 125000, "Pemupukan": 500000, "Pengendalian Hama": 150000, "Pemangkasan": 200000, "Penyulaman": 100000, "Irigasi (kemarau)": 200000}, "annual_security": 2000000, "inflation_rate": 0.04, "rent_options": [0, 50000000, 75000000, 100000000], "default_rent": 75000000};
+
+function id(x){return document.getElementById(x);}
+function fmt(n){return (Math.round(n)).toString().replace(/\B(?=(\d{3})+(?!\d))/g, ",");}
+
+function setupScenario(){
+  const sel = id('scenario');
+  ['Konservatif','Moderat','Optimistis'].forEach(s=>{
+    const opt=document.createElement('option'); opt.value=s; opt.textContent=s; sel.appendChild(opt);
+  });
+  sel.value='Moderat';
+  applyScenario();
+  sel.addEventListener('change', applyScenario);
+}
+
+function applyScenario(){
+  const sc = CFG.scenarios[id('scenario').value];
+  id('survival').value = Math.round(sc.survival*100);
+  id('volper').value = sc.vol_per_tree;
+  id('trees').value = CFG.trees;
+  id('price').value = sc.price;
+  id('priceVal').textContent = fmt(sc.price);
+  // overheads defaults
+  setupRent();
+  id('security').value = CFG.annual_security;
+  id('inflation').value = (CFG.inflation_rate*100).toFixed(1);
+  recalc();
+}
+
+function setupRent(){
+  const sel = id('rent');
+  sel.innerHTML='';
+  const opts = CFG.rent_options;
+  opts.forEach(v=>{
+    const o=document.createElement('option');
+    o.value=v; o.textContent = v===0? 'Tanpa Sewa (0)' : ('Rp ' + fmt(v) + '/th');
+    sel.appendChild(o);
+  });
+  sel.value = CFG.default_rent;
+  sel.addEventListener('change', recalc);
+}
+
+function setupInputs(){
+  ['price','survival','volper','trees','security','inflation'].forEach(x=>{
+    id(x).addEventListener('input', recalc);
+  });
+}
+
+function computeSeries(){
+  const plant = CFG.plant_year, harvest = CFG.harvest_year;
+  const years = Array.from({length: harvest-plant+1}, (_,i)=>plant+i);
+  const trees=parseInt(id('trees').value||0);
+  const surv=parseFloat(id('survival').value||90)/100;
+  const alive=Math.round(trees*surv);
+  const volper=parseFloat(id('volper').value||0);
+  const price=parseFloat(id('price').value||0);
+  const rent=parseFloat(id('rent').value||0);
+  const security=parseFloat(id('security').value||0);
+  const inflation=(parseFloat(id('inflation').value||0)/100);
+
+  const volume=alive*volper;
+  const revenue=volume*price;
+
+  // initial costs
+  const initCost = CFG.initial_costs.reduce((a,b)=>a+b["Biaya (IDR)"],0);
+
+  // maintenance base calendar cost per year
+  const baseByYear = {};
+  CFG.calendar.forEach(r=>{
+    baseByYear[r.Tahun] = (baseByYear[r.Tahun]||0) + r["Biaya (IDR)"];
+  });
+
+  // apply overheads and inflation (years before harvest)
+  let maintCost = 0;
+  years.forEach((y,i)=>{
+    if(y>=harvest) return;
+    const base = (baseByYear[y]||0) + rent + security;
+    const factor = Math.pow(1+inflation, i); // i=0 for planting year
+    maintCost += base * factor;
+  });
+
+  // harvest cost
+  const harvCost = alive*CFG.felling_cost_per_tree + volume*CFG.transport_cost_per_m3;
+
+  // per-year costs for chart (incl. init & maint & harvest)
+  const costs = years.map((y,i)=>{
+    if(y===plant) return (baseByYear[y]||0) + rent + security + initCost;
+    if(y<harvest) return ((baseByYear[y]||0) + rent + security) * Math.pow(1+inflation, i);
+    return harvCost;
+  });
+  const revenues = years.map(y=> y===harvest? revenue:0);
+
+  return {years, costs, revenues, alive, volume, revenue, initCost, maintCost, harvCost};
+}
+
+function drawChart(series){
+  const svg=id('chart'); svg.innerHTML='';
+  const W=800, H=260, padL=40, padR=10, padT=10, padB=30;
+  const innerW=W-padL-padR, innerH=H-padT-padB;
+  const maxY=Math.max(...series.costs, ...series.revenues, 1);
+  const scaleX=(i)=> padL + (innerW * i/(series.years.length-1||1));
+  const scaleY=(v)=> padT + innerH * (1 - v/maxY);
+
+  // axes
+  const axis = document.createElementNS('http://www.w3.org/2000/svg','g');
+  const xline = document.createElementNS('http://www.w3.org/2000/svg','line');
+  xline.setAttribute('x1', padL); xline.setAttribute('y1', padT+innerH);
+  xline.setAttribute('x2', padL+innerW); xline.setAttribute('y2', padT+innerH);
+  xline.setAttribute('stroke', '#ccc'); axis.appendChild(xline);
+  const yline = document.createElementNS('http://www.w3.org/2000/svg','line');
+  yline.setAttribute('x1', padL); yline.setAttribute('y1', padT);
+  yline.setAttribute('x2', padL); yline.setAttribute('y2', padT+innerH);
+  yline.setAttribute('stroke', '#ccc'); axis.appendChild(yline);
+  svg.appendChild(axis);
+
+  // bars for costs
+  const barW = Math.min(24, innerW/(series.years.length*1.5));
+  series.costs.forEach((v,i)=>{
+    const x = scaleX(i) - barW/2;
+    const y = scaleY(v);
+    const h = (padT+innerH) - y;
+    const rect = document.createElementNS('http://www.w3.org/2000/svg','rect');
+    rect.setAttribute('x', x); rect.setAttribute('y', y);
+    rect.setAttribute('width', barW); rect.setAttribute('height', h);
+    rect.setAttribute('fill', '#93c5fd');
+    svg.appendChild(rect);
+  });
+
+  // line for revenue
+  const path = document.createElementNS('http://www.w3.org/2000/svg','path');
+  let d='';
+  series.revenues.forEach((v,i)=>{
+    const x=scaleX(i), y=scaleY(v);
+    d += (i===0?`M ${x} ${y}`:` L ${x} ${y}`);
+  });
+  path.setAttribute('d', d);
+  path.setAttribute('fill','none'); path.setAttribute('stroke','#16a34a'); path.setAttribute('stroke-width','2');
+  svg.appendChild(path);
+
+  // x labels
+  series.years.forEach((yr,i)=>{
+    const tx=document.createElementNS('http://www.w3.org/2000/svg','text');
+    tx.setAttribute('x', scaleX(i)); tx.setAttribute('y', padT+innerH+18);
+    tx.setAttribute('text-anchor','middle'); tx.setAttribute('class','axis');
+    tx.textContent = yr;
+    svg.appendChild(tx);
+  });
+}
+
+function recalc(){
+  const s = computeSeries();
+  const profit = s.revenue - (s.initCost + s.maintCost + s.harvCost);
+  const margin = s.revenue>0 ? Math.max(0, Math.min(100, (profit/s.revenue)*100)) : 0;
+
+  id('alive').textContent=fmt(s.alive);
+  id('volume').textContent=(Math.round(s.volume*100)/100).toLocaleString();
+  id('revenue').textContent=fmt(s.revenue);
+  id('initCost').textContent=fmt(s.initCost);
+  id('maintCost').textContent=fmt(s.maintCost);
+  id('harvCost').textContent=fmt(s.harvCost);
+  id('profit').textContent=fmt(profit);
+  document.querySelector('.bar').style.width=margin+'%';
+  drawChart(s);
+  renderCalendar();
+}
+
+function setupCalendar(){
+  const years = [...new Set(CFG.calendar.map(r=>r.Tahun))];
+  const sel = id('yearSelect');
+  years.forEach(y=>{ const opt=document.createElement('option'); opt.value=y; opt.textContent=y; sel.appendChild(opt); });
+  sel.value = years[0];
+  sel.addEventListener('change', renderCalendar);
+}
+
+function renderCalendar(){
+  const y = parseInt(id('yearSelect').value);
+  const rows = CFG.calendar.filter(r=>r.Tahun===y);
+  const byMonth = {};
+  rows.forEach(r=>{
+    const k=r.Bulan;
+    if(!byMonth[k]) byMonth[k]={items:[], total:0};
+    byMonth[k].items.push(r.Kegiatan);
+    byMonth[k].total += r["Biaya (IDR)"];
+  });
+  const order = {"Jan":1,"Apr":2,"Jul":3,"Okt":4};
+  const months = Object.keys(byMonth).sort((a,b)=>order[a]-order[b]);
+  const tbody = document.querySelector('#calTable tbody'); tbody.innerHTML='';
+  let totalYear=0;
+  months.forEach(m=>{
+    const tr=document.createElement('tr');
+    tr.innerHTML = `<td>${m}</td><td>${byMonth[m].items.join(', ')}</td><td class='right money'>${fmt(byMonth[m].total)}</td>`;
+    tbody.appendChild(tr);
+    totalYear += byMonth[m].total;
+  });
+  document.getElementById('yearTotal').textContent = fmt(totalYear);
+}
+
+function init(){
+  setupScenario();
+  setupInputs();
+  setupCalendar();
+  recalc();
+}
+init();
+</script>
+</body>
+</html>
